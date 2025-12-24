@@ -1,5 +1,5 @@
 import urllib.request
-import os,random,time,signal
+import os,random,time
 from flask import Flask, flash, request, redirect, url_for,render_template
 from werkzeug.utils import secure_filename
 from flask import send_from_directory
@@ -8,6 +8,7 @@ from PIL import Image
 import json
 from inky.auto import auto
 from gpiozero import Button
+import threading
 from PIL import ImageDraw,Image 
 import generateInfo
 
@@ -23,10 +24,10 @@ CURRENT_IMAGE_INDEX = 0
 
 # Get the current path
 PATH = os.path.dirname(os.path.dirname(__file__))
-print(PATH)
+print(PATH, flush=True)
 UPLOAD_FOLDER = os.path.join(PATH,"img")
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg','webp'}
-print(ALLOWED_EXTENSIONS)
+print(ALLOWED_EXTENSIONS, flush=True)
 
 # Check whether the specified path exists or not
 pathExist = os.path.exists(os.path.join(PATH,"img"))
@@ -40,6 +41,9 @@ inky_display.set_border(inky_display.BLACK)
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Lock for thread-safe display updates
+display_lock = threading.Lock()
 
 def getImageList():
     """Get sorted list of images in the img folder"""
@@ -55,29 +59,38 @@ def nextImage():
     global CURRENT_IMAGE_INDEX
     images = getImageList()
     if len(images) == 0:
-        print("No images available")
+        print("No images available", flush=True)
         return
     CURRENT_IMAGE_INDEX = (CURRENT_IMAGE_INDEX + 1) % len(images)
     next_img = images[CURRENT_IMAGE_INDEX]
-    print(f"Displaying image {CURRENT_IMAGE_INDEX + 1}/{len(images)}: {next_img}")
+    print(f"Displaying image {CURRENT_IMAGE_INDEX + 1}/{len(images)}: {next_img}", flush=True)
     updateEink(next_img, ORIENTATION, ADJUST_AR)
 
 # Button handler functions for gpiozero
 def button_a_pressed():
-    print("--A-- Pressed: Show PiInk info")
-    generateInfo.infoGen(inky_display.width,inky_display.height)
-    updateEink("infoImage.png",0,"")
+    print("--A-- Pressed: Show PiInk info", flush=True)
+    def do_update():
+        with display_lock:
+            generateInfo.infoGen(inky_display.width,inky_display.height)
+            updateEink("infoImage.png",0,"")
+    threading.Thread(target=do_update).start()
 
 def button_b_pressed():
-    print("--B-- Pressed: Rotate image clockwise")
-    rotateImage(-90)
+    print("--B-- Pressed: Rotate image clockwise", flush=True)
+    def do_update():
+        with display_lock:
+            rotateImage(-90)
+    threading.Thread(target=do_update).start()
 
 def button_c_pressed():
-    print("--C-- Pressed: Next image")
-    nextImage()
+    print("--C-- Pressed: Next image", flush=True)
+    def do_update():
+        with display_lock:
+            nextImage()
+    threading.Thread(target=do_update).start()
 
 def button_d_pressed():
-    print("--D-- Pressed: Reboot the Pi")
+    print("--D-- Pressed: Reboot the Pi", flush=True)
     os.system('sudo reboot')
 
 def allowed_file(filename):
@@ -105,7 +118,6 @@ def upload_file():
             file = request.files['file']
             print(file)
             if file and allowed_file(file.filename):
-                # Images now accumulate instead of being deleted
                 filename = secure_filename(file.filename)
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
                 filename = os.path.join(app.config['UPLOAD_FOLDER'],filename)
@@ -255,21 +267,34 @@ def rotateImage(deg):
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'],filename)
 
-# Setup GPIO buttons using gpiozero
-try:
-    btn_a = Button(5, pull_up=True, bounce_time=0.25)
-    btn_b = Button(6, pull_up=True, bounce_time=0.25)
-    btn_c = Button(16, pull_up=True, bounce_time=0.25)
-    btn_d = Button(24, pull_up=True, bounce_time=0.25)
-    
-    btn_a.when_pressed = button_a_pressed
-    btn_b.when_pressed = button_b_pressed
-    btn_c.when_pressed = button_c_pressed
-    btn_d.when_pressed = button_d_pressed
-    print("GPIO buttons initialized successfully")
-except Exception as e:
-    print(f"GPIO button setup failed: {e}")
+# Setup GPIO buttons using gpiozero with hold_time for better detection
+btn_a = None
+btn_b = None  
+btn_c = None
+btn_d = None
+
+def setup_buttons():
+    global btn_a, btn_b, btn_c, btn_d
+    try:
+        btn_a = Button(5, pull_up=True, hold_time=0.1)
+        btn_b = Button(6, pull_up=True, hold_time=0.1)
+        btn_c = Button(16, pull_up=True, hold_time=0.1)
+        btn_d = Button(24, pull_up=True, hold_time=0.1)
+        
+        btn_a.when_pressed = button_a_pressed
+        btn_b.when_pressed = button_b_pressed
+        btn_c.when_pressed = button_c_pressed
+        btn_d.when_pressed = button_d_pressed
+        print("GPIO buttons initialized successfully", flush=True)
+        return True
+    except Exception as e:
+        print(f"GPIO button setup failed: {e}", flush=True)
+        return False
+
+# Initialize buttons
+setup_buttons()
 
 if __name__ == '__main__':
     app.secret_key = str(random.randint(100000,999999))
-    app.run(host="0.0.0.0",port=80)
+    # Use threaded mode and disable reloader to keep gpiozero callbacks working
+    app.run(host="0.0.0.0", port=80, threaded=True, use_reloader=False)

@@ -47,7 +47,7 @@ class infoGen:
         subTitleFont = ImageFont.truetype(fontFile, int(self.urlQR.pixel_size/6))
         ipFont = ImageFont.truetype(fontFile, int(self.urlQR.pixel_size/7))
         font = ImageFont.truetype(fontFile, int(self.urlQR.pixel_size/9))
-        infoImage.paste(self.urlQR,(0,0))
+        infoImage.paste(self.urlQR.convert("RGB"),(0,0))
 
         imageDraw = ImageDraw.Draw(infoImage)
         imageDraw.text((self.urlQR.pixel_size + int(titleFont.size),0),"PiInk",fill=(0,0,0),font=titleFont)
