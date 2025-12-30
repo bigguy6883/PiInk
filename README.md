@@ -14,6 +14,7 @@
 # Table of Contents
 * [Overview](#piink---a-raspberry-pi-powered-e-ink-picture-frame)
 * [Installation](#installation)
+* [Troubleshooting](#troubleshooting)
 * [WebUI & PiInk Buttons](#webui--piink-buttons)
 * [Parts List](#parts-list)
    * [E-Ink Display](#e-ink-display)
@@ -34,7 +35,23 @@ sudo bash install.sh
 
 ```
 
-Upon reboot, the PiInk program will start and be accessible on the web at the Raspberry Pi's IP address or at `piink.local` 
+Upon reboot, the PiInk program will start and be accessible on the web at the Raspberry Pi's IP address or at `piink.local`
+
+
+# Troubleshooting
+
+### GPIO Busy Error on Raspberry Pi OS Trixie (Debian 13) or Newer Kernels
+
+If you encounter a `GPIO busy` error and the display fails to update, this is caused by the SPI kernel driver claiming the chip select pins on newer Raspberry Pi OS versions (kernel 6.6+).
+
+**Fix:** Add the following line to `/boot/firmware/config.txt` to disable kernel SPI chip select management:
+
+```bash
+echo "dtoverlay=spi0-0cs" | sudo tee -a /boot/firmware/config.txt
+sudo reboot
+```
+
+This allows the inky library to control the SPI chip select pin directly.
 
 
 # WebUI & PiInk Buttons
